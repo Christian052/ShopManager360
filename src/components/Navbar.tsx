@@ -10,6 +10,7 @@ import {
   Shield,
   CreditCard,
   Building,
+  Camera,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Language } from '../utils/i18n';
@@ -27,6 +28,7 @@ interface NavbarProps {
   onClearNotifications: () => void;
   onViewRestockEmail: (notification: StockAlertNotification) => void;
   onTriggerTestAlert: () => void;
+  onOpenScanner?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -40,6 +42,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onClearNotifications,
   onViewRestockEmail,
   onTriggerTestAlert,
+  onOpenScanner,
 }) => {
   const {
     currentTenant,
@@ -231,6 +234,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <ArrowUpRight className="w-3.5 h-3.5" />
                   <span>{t.stockOut}</span>
                 </button>
+                {onOpenScanner && (
+                  <button
+                    id="btn-navbar-scan-barcode"
+                    onClick={onOpenScanner}
+                    className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"
+                    title="Scan Barcode via Camera"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="hidden md:inline">Scan</span>
+                  </button>
+                )}
               </div>
             )}
 

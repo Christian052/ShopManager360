@@ -20,6 +20,7 @@ import { AdjustmentModal } from './components/AdjustmentModal';
 import { RegisterShopModal } from './components/RegisterShopModal';
 import { RestockEmailModal } from './components/RestockEmailModal';
 import { LowStockBannerToast } from './components/LowStockBannerToast';
+import { BarcodeScannerModal } from './components/BarcodeScannerModal';
 import { StockAlertNotification } from './types';
 import { CheckCircle, AlertTriangle, Shield } from 'lucide-react';
 
@@ -47,6 +48,7 @@ function AppContent() {
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
   const [adjustmentPartId, setAdjustmentPartId] = useState<string | undefined>(undefined);
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
+  const [isGlobalScannerOpen, setIsGlobalScannerOpen] = useState(false);
 
   // Stock alert & restock email modal state
   const [selectedEmailNotification, setSelectedEmailNotification] = useState<StockAlertNotification | null>(null);
@@ -374,6 +376,7 @@ function AppContent() {
         onClearNotifications={handleClearNotifications}
         onViewRestockEmail={handleViewRestockEmail}
         onTriggerTestAlert={handleTriggerTestAlert}
+        onOpenScanner={() => setIsGlobalScannerOpen(true)}
       />
 
       {/* Body: Sidebar + Main Workspace View */}

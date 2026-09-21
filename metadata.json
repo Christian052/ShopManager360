@@ -1,7 +1,7 @@
 {
   "name": "Remix ShopManager360 - Spare Inventory SaaS",
   "description": "Multi-tenant inventory and spare parts management system for Rwandan SMEs with RBAC, MTN MoMo billing, stock transactions, and data isolation.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["camera"],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]

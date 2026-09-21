@@ -13,10 +13,14 @@ import {
   Tag,
   Barcode,
   Layers,
+  Camera,
+  CheckCircle2,
+  X,
 } from 'lucide-react';
 import { SparePart, Category } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { formatRwf } from '../utils/i18n';
+import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 interface InventoryViewProps {
   parts: SparePart[];
@@ -48,6 +52,11 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
   const [barcodeModalPart, setBarcodeModalPart] = useState<SparePart | null>(null);
   const [showNewCatInput, setShowNewCatInput] = useState(false);
   const [newCatName, setNewCatName] = useState('');
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannedNotification, setScannedNotification] = useState<{
+    code: string;
+    part?: SparePart;
+  } | null>(null);
 
   // Filter parts
   const filteredParts = parts.filter((part) => {
@@ -147,16 +156,47 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
       {/* Filters & Search Toolbar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {/* Search Box */}
-          <div className="relative md:col-span-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={t.searchPlaceholder}
-              className="w-full pl-9 pr-3.5 py-2 rounded-xl border border-slate-300 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
-            />
+          {/* Search Box with Barcode Scan Camera Button */}
+          <div className="relative md:col-span-1 flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                id="input-inventory-search"
+                type="text"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  if (scannedNotification && e.target.value !== scannedNotification.code) {
+                    setScannedNotification(null);
+                  }
+                }}
+                placeholder={t.searchPlaceholder}
+                className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-300 text-xs text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-amber-500"
+              />
+              {search && (
+                <button
+                  onClick={() => {
+                    setSearch('');
+                    setScannedNotification(null);
+                  }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                  title="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            <button
+              id="btn-scan-barcode-inventory"
+              type="button"
+              onClick={() => setIsScannerOpen(true)}
+              className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-xs transition"
+              title="Scan barcode with camera to find part"
+            >
+              <Camera className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Scan Barcode</span>
+              <span className="sm:hidden">Scan</span>
+            </button>
           </div>
 
           {/* Category Filter */}
@@ -213,6 +253,68 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
       </div>
 
+      {/* Scanned Barcode Search Result Banner */}
+      {scannedNotification && (
+        <div
+          id="banner-scanned-part-active"
+          className="p-3.5 bg-emerald-50 border border-emerald-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-emerald-950 animate-in fade-in duration-200 shadow-2xs"
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-semibold">
+                Barcode Scanned:{' '}
+                <span className="font-mono px-1.5 py-0.5 rounded bg-white border border-emerald-200 text-emerald-900 font-bold">
+                  {scannedNotification.code}
+                </span>
+                {scannedNotification.part && (
+                  <span className="ml-1.5 font-bold text-emerald-900">
+                    — {scannedNotification.part.name}
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-emerald-700 mt-0.5">
+                Catalog filtered to matched item. You can record a Stock In or Stock Out directly.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-center">
+            {scannedNotification.part && (
+              <>
+                <button
+                  id="btn-scanned-quick-stockin"
+                  onClick={() => onOpenStockIn(scannedNotification.part!.id)}
+                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-2xs transition"
+                >
+                  <ArrowDownRight className="w-3.5 h-3.5" />
+                  <span>+ Stock In</span>
+                </button>
+                <button
+                  id="btn-scanned-quick-stockout"
+                  onClick={() => onOpenStockOut(scannedNotification.part!.id)}
+                  className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-2xs transition"
+                >
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                  <span>- Stock Out</span>
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => {
+                setSearch('');
+                setScannedNotification(null);
+              }}
+              className="px-2 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-600 rounded-lg text-xs font-medium transition"
+            >
+              Clear Filter
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Inventory Catalog Table */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
@@ -250,8 +352,17 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                   const marginPct =
                     part.sellPrice > 0 ? Math.round(((part.sellPrice - part.costPrice) / part.sellPrice) * 100) : 0;
 
+                  const isScannedMatch = scannedNotification?.part?.id === part.id;
+
                   return (
-                    <tr key={part.id} className="hover:bg-slate-50/70 transition-colors">
+                    <tr
+                      key={part.id}
+                      className={`transition-colors ${
+                        isScannedMatch
+                          ? 'bg-emerald-50/80 ring-2 ring-emerald-400/60 font-medium'
+                          : 'hover:bg-slate-50/70'
+                      }`}
+                    >
                       {/* Name & SKU */}
                       <td className="py-3 px-4">
                         <div className="font-semibold text-slate-900">{part.name}</div>
@@ -421,6 +532,23 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
           </div>
         </div>
       )}
+      {/* Barcode Camera Scanner Modal */}
+      <BarcodeScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        parts={parts}
+        mode="search"
+        onScanSuccess={(code, matched) => {
+          setIsScannerOpen(false);
+          if (matched) {
+            setSearch(matched.sku);
+            setScannedNotification({ code, part: matched });
+          } else {
+            setSearch(code);
+            setScannedNotification({ code });
+          }
+        }}
+      />
     </div>
   );
 };
