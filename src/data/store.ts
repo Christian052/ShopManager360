@@ -12,6 +12,7 @@ import {
   SubscriptionStatus,
   StockAlertNotification,
   NotificationSettings,
+  SupplierContact,
 } from '../types';
 
 export type { IsolationTestResult };
@@ -42,6 +43,7 @@ class MultiTenantStore {
   private activityLogs: ActivityLog[] = [];
   private notifications: StockAlertNotification[] = [];
   private notificationSettings: Record<string, NotificationSettings> = {};
+  private suppliers: SupplierContact[] = [];
 
   constructor() {
     this.loadState();
@@ -58,6 +60,7 @@ class MultiTenantStore {
       const savedLogs = localStorage.getItem(STORAGE_KEY_PREFIX + 'logs');
       const savedNotifications = localStorage.getItem(STORAGE_KEY_PREFIX + 'notifications');
       const savedNotifSettings = localStorage.getItem(STORAGE_KEY_PREFIX + 'notif_settings');
+      const savedSuppliers = localStorage.getItem(STORAGE_KEY_PREFIX + 'suppliers');
 
       this.tenants = savedTenants ? JSON.parse(savedTenants) : [...INITIAL_TENANTS];
       this.users = savedUsers ? JSON.parse(savedUsers) : [...INITIAL_USERS];
@@ -75,10 +78,16 @@ class MultiTenantStore {
       this.activityLogs = savedLogs ? JSON.parse(savedLogs) : [...INITIAL_ACTIVITY_LOGS];
       this.notifications = savedNotifications ? JSON.parse(savedNotifications) : [];
       this.notificationSettings = savedNotifSettings ? JSON.parse(savedNotifSettings) : {};
+      this.suppliers = savedSuppliers ? JSON.parse(savedSuppliers) : [];
 
       // Seed initial low-stock alerts if empty
       if (this.notifications.length === 0) {
         this.seedInitialLowStockAlerts();
+      }
+
+      // Seed initial suppliers if empty
+      if (this.suppliers.length === 0) {
+        this.seedInitialSuppliers();
       }
     } catch {
       // Fallback
@@ -91,8 +100,145 @@ class MultiTenantStore {
       this.activityLogs = [...INITIAL_ACTIVITY_LOGS];
       this.notifications = [];
       this.notificationSettings = {};
+      this.suppliers = [];
       this.seedInitialLowStockAlerts();
+      this.seedInitialSuppliers();
     }
+  }
+
+  private seedInitialSuppliers() {
+    const defaultSuppliers: SupplierContact[] = [
+      {
+        id: 'supp-kigali-toyota',
+        tenantId: 'tenant-kigali-auto',
+        name: 'Toyota Rwanda Spares Agency',
+        contactPerson: 'Jean-Paul Mugisha',
+        phone: '+250 788 345 678',
+        email: 'orders@toyotarwanda.co.rw',
+        category: 'Engine Parts & Filters',
+        address: 'Nyarugenge, KN 3 Rd, Nyabugogo',
+        tinNumber: '100348912',
+        paymentTerms: 'Net 30 Days',
+        leadTimeDays: 2,
+        notes: 'Primary authorized supplier for Hilux, Land Cruiser, and Corolla genuine components.',
+        status: 'active',
+        createdAt: '2026-01-15T08:00:00.000Z',
+      },
+      {
+        id: 'supp-kigali-bosch',
+        tenantId: 'tenant-kigali-auto',
+        name: 'Bosch Auto Center Kigali',
+        contactPerson: 'Claire Umutoni',
+        phone: '+250 783 112 990',
+        email: 'spares@bosch-rwanda.com',
+        category: 'Brake Systems & Electrical',
+        address: 'Kicukiro, Gikondo Industrial Park',
+        tinNumber: '102458921',
+        paymentTerms: 'Cash on Delivery',
+        leadTimeDays: 3,
+        notes: 'OEM brake discs, abs sensors, alternators, and starter motors.',
+        status: 'active',
+        createdAt: '2026-01-20T09:30:00.000Z',
+      },
+      {
+        id: 'supp-kigali-total',
+        tenantId: 'tenant-kigali-auto',
+        name: 'TotalEnergies Lubricants Rwanda',
+        contactPerson: 'David Nshimyumuremyi',
+        phone: '+250 788 556 221',
+        email: 'commercial@totalenergies.rw',
+        category: 'Lubricants & Fluids',
+        address: 'Gasabo, Boulevard de l Umuganda',
+        tinNumber: '100029384',
+        paymentTerms: '15 Days Credit',
+        leadTimeDays: 1,
+        notes: 'High-grade synthetic motor oils (5W-30, 10W-40) and hydraulic fluids in drums and bottles.',
+        status: 'active',
+        createdAt: '2026-01-22T11:00:00.000Z',
+      },
+      {
+        id: 'supp-kigali-denso',
+        tenantId: 'tenant-kigali-auto',
+        name: 'Denso Spark Plug Hub East Africa',
+        contactPerson: 'Patrick Habimana',
+        phone: '+250 781 445 670',
+        email: 'sales@densosparks.rw',
+        category: 'Ignition & Electrical',
+        address: 'Nyarugenge, Muhima Commercial Hub',
+        tinNumber: '104889231',
+        paymentTerms: 'MoMo / Airtel Money',
+        leadTimeDays: 2,
+        notes: 'Iridium and platinum spark plugs, ignition coils, and oxygen sensors.',
+        status: 'active',
+        createdAt: '2026-02-01T14:15:00.000Z',
+      },
+      {
+        id: 'supp-kigali-brembo',
+        tenantId: 'tenant-kigali-auto',
+        name: 'Brembo Brake Systems Distributors',
+        contactPerson: 'Eric Karasira',
+        phone: '+250 788 901 234',
+        email: 'info@brembo-kigali.rw',
+        category: 'Braking & Hydraulics',
+        address: 'Nyarugenge, Nyabugogo Taxi Park Rd',
+        tinNumber: '101994821',
+        paymentTerms: 'Net 30 Days',
+        leadTimeDays: 4,
+        notes: 'Premium ceramic and semi-metallic brake pads and hydraulic master cylinders.',
+        status: 'active',
+        createdAt: '2026-02-10T10:00:00.000Z',
+      },
+      {
+        id: 'supp-kigali-monroe',
+        tenantId: 'tenant-kigali-auto',
+        name: 'Monroe Shocks Ltd Gikondo',
+        contactPerson: 'Aline Uwase',
+        phone: '+250 785 667 890',
+        email: 'orders@monroeshocks.rw',
+        category: 'Suspension & Steering',
+        address: 'Kicukiro, KK 15 Rd, Gikondo',
+        tinNumber: '103445901',
+        paymentTerms: '50% Advance, 50% on Delivery',
+        leadTimeDays: 5,
+        notes: 'Gas-matic shock absorbers, strut mounts, and heavy-duty springs.',
+        status: 'active',
+        createdAt: '2026-02-15T16:00:00.000Z',
+      },
+      {
+        id: 'supp-hw-wholesalers',
+        tenantId: 'tenant-gikondo-hardware',
+        name: 'Kigali Hardware Wholesalers',
+        contactPerson: 'Emmanuel Bizimana',
+        phone: '+250 788 776 543',
+        email: 'sales@kigalihardware.rw',
+        category: 'Hardware & Fasteners',
+        address: 'Kicukiro, Gahanga Logistics Center',
+        tinNumber: '102334812',
+        paymentTerms: 'Net 60 Days',
+        leadTimeDays: 3,
+        notes: 'Structural fasteners, bolts, angle grinders, and industrial abrasives.',
+        status: 'active',
+        createdAt: '2026-02-10T10:30:00.000Z',
+      },
+      {
+        id: 'supp-pharma-kimironko',
+        tenantId: 'tenant-pharmavie',
+        name: 'PharmaSupply Rwanda Kimironko',
+        contactPerson: 'Dr. Jeanne Mukamana',
+        phone: '+250 788 887 766',
+        email: 'orders@pharmasupply.rw',
+        category: 'Pharmaceuticals & First Aid',
+        address: 'Gasabo, KG 11 Ave, Kimironko',
+        tinNumber: '109928114',
+        paymentTerms: 'Net 15 Days',
+        leadTimeDays: 2,
+        notes: 'Essential medicines, bandages, disinfectants, and wellness products.',
+        status: 'active',
+        createdAt: '2026-02-12T12:00:00.000Z',
+      },
+    ];
+
+    this.suppliers = defaultSuppliers;
   }
 
   private seedInitialLowStockAlerts() {
@@ -145,6 +291,7 @@ class MultiTenantStore {
       localStorage.setItem(STORAGE_KEY_PREFIX + 'logs', JSON.stringify(this.activityLogs));
       localStorage.setItem(STORAGE_KEY_PREFIX + 'notifications', JSON.stringify(this.notifications));
       localStorage.setItem(STORAGE_KEY_PREFIX + 'notif_settings', JSON.stringify(this.notificationSettings));
+      localStorage.setItem(STORAGE_KEY_PREFIX + 'suppliers', JSON.stringify(this.suppliers));
     } catch {
       // Storage error safeguard
     }
@@ -161,7 +308,9 @@ class MultiTenantStore {
     this.activityLogs = [...INITIAL_ACTIVITY_LOGS];
     this.notifications = [];
     this.notificationSettings = {};
+    this.suppliers = [];
     this.seedInitialLowStockAlerts();
+    this.seedInitialSuppliers();
     this.saveState();
   }
 
@@ -418,6 +567,11 @@ class MultiTenantStore {
     if (idx === -1) throw new Error('Part not found.');
     this.assertTenantAccess(tenantId, this.parts[idx].tenantId, 'modify spare part');
 
+    const previous = this.parts[idx];
+    const costPriceChanged = data.costPrice !== undefined && data.costPrice !== previous.costPrice;
+    const sellPriceChanged = data.sellPrice !== undefined && data.sellPrice !== previous.sellPrice;
+    const priceChanged = costPriceChanged || sellPriceChanged;
+
     const updated = {
       ...this.parts[idx],
       ...data,
@@ -428,6 +582,25 @@ class MultiTenantStore {
 
     this.parts[idx] = updated;
 
+    if (priceChanged) {
+      const changes: string[] = [];
+      if (costPriceChanged) {
+        changes.push(`Cost Price: ${previous.costPrice.toLocaleString()} → ${data.costPrice!.toLocaleString()} RWF`);
+      }
+      if (sellPriceChanged) {
+        changes.push(`Sell Price: ${previous.sellPrice.toLocaleString()} → ${data.sellPrice!.toLocaleString()} RWF`);
+      }
+      this.logActivity({
+        tenantId,
+        userId: user.id,
+        userName: user.name,
+        action: 'PRICE_CHANGE',
+        entity: 'part',
+        entityId: partId,
+        details: `Price adjusted for '${updated.name}' (${updated.sku}): ${changes.join(', ')}`,
+      });
+    }
+
     this.logActivity({
       tenantId,
       userId: user.id,
@@ -435,7 +608,7 @@ class MultiTenantStore {
       action: 'UPDATE_PART',
       entity: 'part',
       entityId: partId,
-      details: `Updated part master records for '${updated.name}'`,
+      details: `Updated part master records for '${updated.name}' (${updated.sku})`,
     });
 
     this.saveState();
@@ -984,6 +1157,20 @@ class MultiTenantStore {
   // ================= AUDIT LOGS =================
   public getActivityLogs(tenantId: string): ActivityLog[] {
     return this.activityLogs.filter((l) => l.tenantId === tenantId).slice(0, 50);
+  }
+
+  public getAllActivityLogs(tenantId: string): ActivityLog[] {
+    return this.activityLogs.filter((l) => l.tenantId === tenantId);
+  }
+
+  public getPartActivityLogs(tenantId: string, partId: string): ActivityLog[] {
+    const part = this.parts.find((p) => p.id === partId);
+    return this.activityLogs.filter((l) => {
+      if (l.tenantId !== tenantId) return false;
+      if (l.entityId === partId) return true;
+      if (part && (l.details.includes(part.sku) || l.details.includes(part.name))) return true;
+      return false;
+    });
   }
 
   private logActivity(entry: Omit<ActivityLog, 'id' | 'createdAt'>) {
@@ -1595,6 +1782,151 @@ class MultiTenantStore {
       return manualAlert;
     }
     return alert;
+  }
+
+  // ================= SUPPLIER & VENDOR MANAGEMENT =================
+
+  public getSuppliers(tenantId: string): SupplierContact[] {
+    return this.suppliers.filter((s) => s.tenantId === tenantId);
+  }
+
+  public getSupplierById(tenantId: string, supplierId: string): SupplierContact | undefined {
+    const supp = this.suppliers.find((s) => s.id === supplierId);
+    if (supp) {
+      this.assertTenantAccess(tenantId, supp.tenantId, 'view supplier');
+    }
+    return supp;
+  }
+
+  public addSupplier(
+    tenantId: string,
+    data: Omit<SupplierContact, 'id' | 'tenantId' | 'createdAt'>
+  ): SupplierContact {
+    const newSupplier: SupplierContact = {
+      ...data,
+      id: `supp-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+      tenantId,
+      status: data.status || 'active',
+      createdAt: new Date().toISOString(),
+    };
+
+    this.suppliers.unshift(newSupplier);
+    this.saveState();
+    return newSupplier;
+  }
+
+  public updateSupplier(
+    tenantId: string,
+    supplierId: string,
+    updates: Partial<SupplierContact>
+  ): SupplierContact {
+    const index = this.suppliers.findIndex((s) => s.id === supplierId);
+    if (index === -1) {
+      throw new Error(`Supplier with ID '${supplierId}' not found.`);
+    }
+
+    this.assertTenantAccess(tenantId, this.suppliers[index].tenantId, 'update supplier');
+
+    const updated: SupplierContact = {
+      ...this.suppliers[index],
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.suppliers[index] = updated;
+    this.saveState();
+    return updated;
+  }
+
+  public deleteSupplier(tenantId: string, supplierId: string): boolean {
+    const index = this.suppliers.findIndex((s) => s.id === supplierId);
+    if (index === -1) return false;
+
+    this.assertTenantAccess(tenantId, this.suppliers[index].tenantId, 'delete supplier');
+    this.suppliers.splice(index, 1);
+    this.saveState();
+    return true;
+  }
+
+  public bulkImportSuppliers(
+    tenantId: string,
+    rows: Array<Omit<SupplierContact, 'id' | 'tenantId' | 'createdAt'>>,
+    mode: 'append' | 'update_existing' | 'overwrite' = 'update_existing'
+  ): { imported: number; updated: number; skipped: number; total: number } {
+    let imported = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    if (mode === 'overwrite') {
+      // Remove existing suppliers for this tenant only
+      this.suppliers = this.suppliers.filter((s) => s.tenantId !== tenantId);
+    }
+
+    for (const row of rows) {
+      const trimmedName = row.name.trim();
+      if (!trimmedName) {
+        skipped++;
+        continue;
+      }
+
+      const existingIndex = this.suppliers.findIndex(
+        (s) =>
+          s.tenantId === tenantId &&
+          (s.name.toLowerCase() === trimmedName.toLowerCase() ||
+            (row.phone && s.phone.replace(/[\s\-\+]/g, '') === row.phone.replace(/[\s\-\+]/g, '')))
+      );
+
+      if (existingIndex >= 0) {
+        if (mode === 'update_existing') {
+          this.suppliers[existingIndex] = {
+            ...this.suppliers[existingIndex],
+            contactPerson: row.contactPerson || this.suppliers[existingIndex].contactPerson,
+            phone: row.phone || this.suppliers[existingIndex].phone,
+            email: row.email || this.suppliers[existingIndex].email,
+            category: row.category || this.suppliers[existingIndex].category,
+            address: row.address || this.suppliers[existingIndex].address,
+            tinNumber: row.tinNumber || this.suppliers[existingIndex].tinNumber,
+            paymentTerms: row.paymentTerms || this.suppliers[existingIndex].paymentTerms,
+            leadTimeDays: row.leadTimeDays || this.suppliers[existingIndex].leadTimeDays,
+            notes: row.notes || this.suppliers[existingIndex].notes,
+            updatedAt: new Date().toISOString(),
+          };
+          updated++;
+        } else if (mode === 'append') {
+          // Add as distinct contact
+          const newSupp: SupplierContact = {
+            ...row,
+            id: `supp-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+            tenantId,
+            status: row.status || 'active',
+            createdAt: new Date().toISOString(),
+          };
+          this.suppliers.push(newSupp);
+          imported++;
+        } else {
+          skipped++;
+        }
+      } else {
+        // Create new
+        const newSupp: SupplierContact = {
+          ...row,
+          id: `supp-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+          tenantId,
+          status: row.status || 'active',
+          createdAt: new Date().toISOString(),
+        };
+        this.suppliers.push(newSupp);
+        imported++;
+      }
+    }
+
+    this.saveState();
+    return {
+      imported,
+      updated,
+      skipped,
+      total: rows.length,
+    };
   }
 }
 

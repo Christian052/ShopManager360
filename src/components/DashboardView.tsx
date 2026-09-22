@@ -12,15 +12,18 @@ import {
   Clock,
   Sparkles,
 } from 'lucide-react';
-import { DashboardMetrics, SparePart, StockTransaction } from '../types';
+import { DashboardMetrics, SparePart, StockTransaction, StockAlertNotification } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { formatRwf } from '../utils/i18n';
 import { MonthlyStockMovementChart } from './MonthlyStockMovementChart';
+import { LowStockTrendsChart } from './LowStockTrendsChart';
 
 interface DashboardViewProps {
   metrics: DashboardMetrics;
   lowStockParts: SparePart[];
+  parts?: SparePart[];
   transactions?: StockTransaction[];
+  notifications?: StockAlertNotification[];
   onOpenStockIn: (partId?: string) => void;
   onOpenStockOut: (partId?: string) => void;
   onOpenAdjustment: (partId?: string) => void;
@@ -31,7 +34,9 @@ interface DashboardViewProps {
 export const DashboardView: React.FC<DashboardViewProps> = ({
   metrics,
   lowStockParts,
+  parts,
   transactions,
+  notifications,
   onOpenStockIn,
   onOpenStockOut,
   onOpenAdjustment,
@@ -241,6 +246,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Low Stock Trends & Reorder Frequency (Recharts) */}
+      <LowStockTrendsChart
+        parts={parts || lowStockParts}
+        transactions={transactions || metrics.recentTransactions || []}
+        notifications={notifications}
+        onOpenStockIn={(partId) => onOpenStockIn(partId)}
+        onOpenAdjustment={canManageCatalog ? (partId) => onOpenAdjustment(partId) : undefined}
+        onNavigateToInventory={() => onNavigateTab('inventory')}
+      />
 
       {/* Monthly Stock Movement Trend (Recharts Line Chart) */}
       <MonthlyStockMovementChart

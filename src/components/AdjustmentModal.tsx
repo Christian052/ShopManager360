@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, SlidersHorizontal, AlertCircle, Camera, CheckCircle2, Barcode } from 'lucide-react';
+import { X, SlidersHorizontal, AlertCircle, Camera, CheckCircle2, QrCode } from 'lucide-react';
 import { SparePart } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
@@ -115,13 +115,13 @@ export const AdjustmentModal: React.FC<AdjustmentModalProps> = ({
               </label>
               <button
                 type="button"
-                id="btn-scan-barcode-adjust"
+                id="btn-scan-qr-adjust"
                 onClick={() => setIsScannerOpen(true)}
                 className="inline-flex items-center gap-1 px-2.5 py-1 bg-sky-100 hover:bg-sky-200 text-sky-900 rounded-lg text-xs font-bold transition shadow-2xs"
-                title="Scan barcode using device camera"
+                title="Scan QR code using device camera"
               >
-                <Camera className="w-3.5 h-3.5 text-sky-700" />
-                <span>Scan Barcode</span>
+                <QrCode className="w-3.5 h-3.5 text-sky-700" />
+                <span>Scan QR Code</span>
               </button>
             </div>
 
@@ -130,7 +130,7 @@ export const AdjustmentModal: React.FC<AdjustmentModalProps> = ({
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-sky-600 shrink-0" />
                   <span>
-                    Auto-selected: <strong className="font-mono">{scannedFeedback.code}</strong> ({scannedFeedback.partName})
+                    Auto-selected from QR code: <strong className="font-mono">{scannedFeedback.code}</strong> ({scannedFeedback.partName})
                   </span>
                 </div>
                 <button

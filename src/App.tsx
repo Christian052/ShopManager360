@@ -392,7 +392,9 @@ function AppContent() {
             <DashboardView
               metrics={metrics}
               lowStockParts={lowStockParts}
+              parts={parts}
               transactions={transactions}
+              notifications={notifications}
               onOpenStockIn={(partId) => {
                 setStockInPartId(partId);
                 setIsStockInModalOpen(true);

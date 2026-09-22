@@ -21,6 +21,7 @@ import { SparePart, Category } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { formatRwf } from '../utils/i18n';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
+import { PartQrCodeModal } from './PartQrCodeModal';
 
 interface InventoryViewProps {
   parts: SparePart[];
@@ -105,6 +106,18 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
+          {filteredParts.length > 0 && (
+            <button
+              id="btn-print-shelf-labels-header"
+              onClick={() => setBarcodeModalPart(filteredParts[0])}
+              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors"
+              title="Generate printable shelf QR codes for parts"
+            >
+              <QrCode className="w-3.5 h-3.5 text-amber-600" />
+              <span>Shelf QR Labels</span>
+            </button>
+          )}
+
           {canManageCatalog && (
             <>
               <button
@@ -187,15 +200,15 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
               )}
             </div>
             <button
-              id="btn-scan-barcode-inventory"
+              id="btn-scan-qr-inventory"
               type="button"
               onClick={() => setIsScannerOpen(true)}
               className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-xs transition"
-              title="Scan barcode with camera to find part"
+              title="Scan QR code with camera to find part"
             >
-              <Camera className="w-3.5 h-3.5 text-amber-400" />
-              <span className="hidden sm:inline">Scan Barcode</span>
-              <span className="sm:hidden">Scan</span>
+              <QrCode className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Scan QR Code</span>
+              <span className="sm:hidden">Scan QR</span>
             </button>
           </div>
 
@@ -374,9 +387,9 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                             <button
                               onClick={() => setBarcodeModalPart(part)}
                               className="text-[10px] text-amber-700 hover:text-amber-800 flex items-center gap-0.5 font-mono"
-                              title="View Barcode / SKU Label"
+                              title="View Shelf QR Code Label"
                             >
-                              <Barcode className="w-3 h-3" />
+                              <QrCode className="w-3 h-3" />
                               {part.barcode}
                             </button>
                           )}
@@ -469,6 +482,14 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
                           {canManageCatalog && (
                             <>
                               <button
+                                id={`btn-part-qr-${part.id}`}
+                                onClick={() => setBarcodeModalPart(part)}
+                                title={`Generate & Print Shelf QR Label (SKU: ${part.sku})`}
+                                className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded-lg transition-colors"
+                              >
+                                <QrCode className="w-4 h-4" />
+                              </button>
+                              <button
                                 onClick={() => onOpenAdjustment(part.id)}
                                 title="Reconcile Shelf Count"
                                 className="p-1.5 text-sky-700 hover:bg-sky-50 rounded-lg transition-colors"
@@ -509,35 +530,28 @@ export const InventoryView: React.FC<InventoryViewProps> = ({
         </div>
       </div>
 
-      {/* Barcode & Label Quick Modal */}
-      {barcodeModalPart && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 text-center space-y-4">
-            <h3 className="font-bold text-slate-800 text-sm">Shelf Label & Barcode Tag</h3>
-            <div className="p-4 bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl space-y-2">
-              <div className="font-extrabold text-sm text-slate-900">{barcodeModalPart.name}</div>
-              <div className="font-mono text-xs text-slate-500">SKU: {barcodeModalPart.sku}</div>
-              <div className="h-12 bg-white flex items-center justify-center border border-slate-200 rounded font-mono text-sm tracking-widest text-slate-800">
-                |||| | ||||| || |||||| |
-              </div>
-              <div className="text-[11px] font-mono text-slate-600">{barcodeModalPart.barcode}</div>
-              <div className="text-xs font-bold text-amber-700">Retail: {formatRwf(barcodeModalPart.sellPrice)}</div>
-            </div>
-            <button
-              onClick={() => setBarcodeModalPart(null)}
-              className="w-full py-2 bg-slate-900 text-white rounded-lg text-xs font-semibold"
-            >
-              Close Label
-            </button>
-          </div>
-        </div>
-      )}
-      {/* Barcode Camera Scanner Modal */}
+      {/* Printable Shelf QR Code Label Modal */}
+      <PartQrCodeModal
+        isOpen={Boolean(barcodeModalPart)}
+        onClose={() => setBarcodeModalPart(null)}
+        part={barcodeModalPart}
+        categoryName={
+          barcodeModalPart
+            ? categories.find((c) => c.id === barcodeModalPart.categoryId)?.name
+            : undefined
+        }
+        allParts={filteredParts}
+      />
+
+      {/* Barcode Camera Scanner Modal using navigator.mediaDevices */}
       <BarcodeScannerModal
         isOpen={isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
         parts={parts}
         mode="search"
+        onOpenStockIn={onOpenStockIn}
+        onOpenStockOut={onOpenStockOut}
+        onOpenAdjustment={onOpenAdjustment}
         onScanSuccess={(code, matched) => {
           setIsScannerOpen(false);
           if (matched) {

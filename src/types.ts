@@ -58,6 +58,24 @@ export interface Category {
   itemCount?: number;
 }
 
+export interface SupplierContact {
+  id: string;
+  tenantId: string;
+  name: string;
+  contactPerson?: string;
+  phone: string;
+  email?: string;
+  category?: string;
+  address?: string;
+  tinNumber?: string;
+  paymentTerms?: string;
+  leadTimeDays?: number;
+  notes?: string;
+  status: 'active' | 'inactive';
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface SparePart {
   id: string;
   tenantId: string;

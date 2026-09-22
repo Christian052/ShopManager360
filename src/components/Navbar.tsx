@@ -11,6 +11,7 @@ import {
   CreditCard,
   Building,
   Camera,
+  QrCode,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Language } from '../utils/i18n';
@@ -236,13 +237,13 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </button>
                 {onOpenScanner && (
                   <button
-                    id="btn-navbar-scan-barcode"
+                    id="btn-navbar-scan-qr"
                     onClick={onOpenScanner}
                     className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs"
-                    title="Scan Barcode via Camera"
+                    title="Scan QR Code via Camera"
                   >
-                    <Camera className="w-3.5 h-3.5 text-amber-400" />
-                    <span className="hidden md:inline">Scan</span>
+                    <QrCode className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="hidden md:inline">Scan QR</span>
                   </button>
                 )}
               </div>

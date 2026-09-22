@@ -20,10 +20,20 @@ import {
   ExternalLink,
   ShieldCheck,
   Sliders,
+  Building2,
+  FileSpreadsheet,
+  Upload,
+  Plus,
+  Search,
+  Edit,
+  Trash2,
+  Clock,
+  Filter,
+  Layers,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { store } from '../data/store';
-import { StockAlertNotification, NotificationSettings } from '../types';
+import { StockAlertNotification, NotificationSettings, SupplierContact } from '../types';
 import {
   playAlertChime,
   getDesktopNotificationStatus,
@@ -31,11 +41,18 @@ import {
   fireDesktopNotification,
 } from '../utils/notificationService';
 import { RestockEmailModal } from './RestockEmailModal';
+import { SupplierImportModal } from './SupplierImportModal';
+import { SupplierEditModal } from './SupplierEditModal';
+import {
+  exportSuppliersToCsv,
+  downloadCsvBlob,
+  generateSampleSupplierCsv,
+} from '../utils/csvImport';
 import { formatRwf } from '../utils/i18n';
 
 interface SettingsViewProps {
   onOpenStockIn?: (partId: string) => void;
-  initialTab?: 'general' | 'notifications';
+  initialTab?: 'general' | 'notifications' | 'suppliers';
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -43,7 +60,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   initialTab = 'general',
 }) => {
   const { currentTenant, isOwner, t } = useAuth();
-  const [activeTab, setActiveTab] = useState<'general' | 'notifications'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'general' | 'notifications' | 'suppliers'>(initialTab);
 
   // Business profile form
   const [businessName, setBusinessName] = useState(currentTenant?.businessName || '');
@@ -69,6 +86,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [selectedNotifForEmail, setSelectedNotifForEmail] = useState<StockAlertNotification | null>(null);
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
 
+  // Suppliers state & modals
+  const [suppliers, setSuppliers] = useState<SupplierContact[]>(
+    currentTenant ? store.getSuppliers(currentTenant.id) : []
+  );
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [supplierToEdit, setSupplierToEdit] = useState<SupplierContact | null>(null);
+  const [supplierSearch, setSupplierSearch] = useState('');
+  const [supplierCategoryFilter, setSupplierCategoryFilter] = useState('all');
+
+  const refreshSuppliers = () => {
+    if (currentTenant) {
+      setSuppliers(store.getSuppliers(currentTenant.id));
+    }
+  };
+
   useEffect(() => {
     if (currentTenant) {
       setBusinessName(currentTenant.businessName);
@@ -79,12 +112,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setOwnerEmail(currentTenant.email);
       setNotifSettings(store.getNotificationSettings(currentTenant.id));
       setNotifications(store.getNotifications(currentTenant.id));
+      setSuppliers(store.getSuppliers(currentTenant.id));
     }
   }, [currentTenant]);
 
   const showNotifToast = (msg: string) => {
     setNotifSavedToast(msg);
     setTimeout(() => setNotifSavedToast(null), 3000);
+  };
+
+  const handleExportSuppliers = () => {
+    if (suppliers.length === 0) {
+      alert('No suppliers available to export.');
+      return;
+    }
+    const csvContent = exportSuppliersToCsv(suppliers);
+    const shopSlug = (currentTenant?.businessName || 'Shop').replace(/[^a-zA-Z0-9]/g, '_');
+    downloadCsvBlob(`${shopSlug}_Suppliers_Directory.csv`, csvContent);
+    showNotifToast(`Exported ${suppliers.length} supplier contacts to CSV!`);
+  };
+
+  const handleDownloadSampleCsv = () => {
+    const sample = generateSampleSupplierCsv();
+    downloadCsvBlob('Rwanda_Suppliers_Import_Template.csv', sample);
+    showNotifToast('Sample CSV template downloaded!');
+  };
+
+  const handleDeleteSupplier = (supplierId: string, supplierName: string) => {
+    if (!currentTenant) return;
+    if (window.confirm(`Are you sure you want to remove supplier '${supplierName}' from your catalog?`)) {
+      store.deleteSupplier(currentTenant.id, supplierId);
+      refreshSuppliers();
+      showNotifToast(`Supplier '${supplierName}' removed.`);
+    }
   };
 
   const handleSaveProfile = (e: React.FormEvent) => {
@@ -203,11 +263,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       {/* Tabs Switcher */}
-      <div className="flex items-center space-x-2 border-b border-slate-200 pb-1">
+      <div className="flex items-center space-x-2 border-b border-slate-200 pb-1 overflow-x-auto">
         <button
           id="tab-settings-general"
           onClick={() => setActiveTab('general')}
-          className={`px-4 py-2 text-xs font-bold rounded-xl flex items-center space-x-2 transition ${
+          className={`px-4 py-2 text-xs font-bold rounded-xl flex items-center space-x-2 transition shrink-0 ${
             activeTab === 'general'
               ? 'bg-slate-900 text-white shadow-xs'
               : 'text-slate-600 hover:bg-slate-100'
@@ -220,7 +280,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <button
           id="tab-settings-notifications"
           onClick={() => setActiveTab('notifications')}
-          className={`px-4 py-2 text-xs font-bold rounded-xl flex items-center space-x-2 transition ${
+          className={`px-4 py-2 text-xs font-bold rounded-xl flex items-center space-x-2 transition shrink-0 ${
             activeTab === 'notifications'
               ? 'bg-amber-600 text-white shadow-xs'
               : 'text-slate-600 hover:bg-slate-100'
@@ -230,6 +290,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <span>Automated Stock Alerts & Notifications</span>
           <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-white/20">
             {notifications.length}
+          </span>
+        </button>
+
+        <button
+          id="tab-settings-suppliers"
+          onClick={() => setActiveTab('suppliers')}
+          className={`px-4 py-2 text-xs font-bold rounded-xl flex items-center space-x-2 transition shrink-0 ${
+            activeTab === 'suppliers'
+              ? 'bg-amber-600 text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <Building2 className="w-4 h-4" />
+          <span>Suppliers & Vendor Management</span>
+          <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-white/20">
+            {suppliers.length}
           </span>
         </button>
       </div>
@@ -744,6 +820,358 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* TAB 3: SUPPLIERS & VENDOR MANAGEMENT */}
+      {activeTab === 'suppliers' && (
+        <div className="space-y-6">
+          {/* Overview Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+              <div className="text-xs font-semibold text-slate-500 mb-1">Total Suppliers</div>
+              <div className="text-2xl font-black text-slate-900">{suppliers.length}</div>
+              <div className="text-[11px] text-slate-400 mt-1">Catalog vendor partners</div>
+            </div>
+
+            <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+              <div className="text-xs font-semibold text-slate-500 mb-1">Active Accounts</div>
+              <div className="text-2xl font-black text-emerald-600">
+                {suppliers.filter((s) => s.status === 'active').length}
+              </div>
+              <div className="text-[11px] text-emerald-600/80 mt-1">Ready for PO & Restock</div>
+            </div>
+
+            <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+              <div className="text-xs font-semibold text-slate-500 mb-1">Avg Delivery Lead Time</div>
+              <div className="text-2xl font-black text-amber-600">
+                {suppliers.length > 0
+                  ? (
+                      suppliers.reduce((acc, s) => acc + (s.leadTimeDays || 2), 0) / suppliers.length
+                    ).toFixed(1)
+                  : '0'}{' '}
+                <span className="text-sm font-bold text-slate-500">Days</span>
+              </div>
+              <div className="text-[11px] text-slate-400 mt-1">From order placement</div>
+            </div>
+
+            <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-2xs">
+              <div className="text-xs font-semibold text-slate-500 mb-1">Product Categories</div>
+              <div className="text-2xl font-black text-indigo-600">
+                {new Set(suppliers.map((s) => s.category).filter(Boolean)).size}
+              </div>
+              <div className="text-[11px] text-indigo-600/80 mt-1">Specialized domains</div>
+            </div>
+          </div>
+
+          {/* Supplier Directory Panel */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+            {/* Header & Actions */}
+            <div className="p-5 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-slate-50/50">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-amber-600" />
+                  <span>Supplier & Vendor Directory</span>
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Manage vendor contact persons, phone numbers, payment conditions, and bulk CSV imports
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  id="btn-download-sample-template"
+                  onClick={handleDownloadSampleCsv}
+                  className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold border border-slate-300 flex items-center gap-1.5 transition shadow-2xs"
+                  title="Download blank CSV template with headers"
+                >
+                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <span>CSV Template</span>
+                </button>
+
+                <button
+                  id="btn-export-suppliers-csv"
+                  onClick={handleExportSuppliers}
+                  className="px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold border border-slate-300 flex items-center gap-1.5 transition shadow-2xs"
+                  title="Export all suppliers to CSV file"
+                >
+                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Export CSV</span>
+                </button>
+
+                <button
+                  id="btn-add-single-supplier"
+                  onClick={() => {
+                    setSupplierToEdit(null);
+                    setIsEditModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-800 rounded-xl text-xs font-bold border border-slate-300 flex items-center gap-1.5 transition shadow-2xs"
+                >
+                  <Plus className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Add Supplier</span>
+                </button>
+
+                <button
+                  id="btn-open-supplier-csv-import"
+                  onClick={() => setIsImportModalOpen(true)}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>Bulk Import CSV</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter & Search Bar */}
+            <div className="p-4 border-b border-slate-200 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  id="input-search-suppliers"
+                  type="text"
+                  value={supplierSearch}
+                  onChange={(e) => setSupplierSearch(e.target.value)}
+                  placeholder="Search by company, contact person, phone, TIN, or location..."
+                  className="w-full pl-9 pr-4 py-2 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-amber-500 focus:outline-hidden transition"
+                />
+                {supplierSearch && (
+                  <button
+                    onClick={() => setSupplierSearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <select
+                  id="select-supplier-category-filter"
+                  value={supplierCategoryFilter}
+                  onChange={(e) => setSupplierCategoryFilter(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 font-medium focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                >
+                  <option value="all">All Categories ({suppliers.length})</option>
+                  {Array.from(new Set(suppliers.map((s) => s.category).filter(Boolean))).map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Suppliers Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-50/80 text-slate-500 font-semibold border-b border-slate-200">
+                  <tr>
+                    <th className="py-3 px-4">Supplier & TIN</th>
+                    <th className="py-3 px-4">Contact Person</th>
+                    <th className="py-3 px-4">Contact Channels</th>
+                    <th className="py-3 px-4">Category</th>
+                    <th className="py-3 px-4">Address / District</th>
+                    <th className="py-3 px-4">Terms & Lead Time</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(() => {
+                    const filteredSuppliers = suppliers.filter((s) => {
+                      const q = supplierSearch.toLowerCase().trim();
+                      const matchSearch =
+                        !q ||
+                        s.name.toLowerCase().includes(q) ||
+                        (s.contactPerson && s.contactPerson.toLowerCase().includes(q)) ||
+                        (s.phone && s.phone.includes(q)) ||
+                        (s.email && s.email.toLowerCase().includes(q)) ||
+                        (s.address && s.address.toLowerCase().includes(q)) ||
+                        (s.tinNumber && s.tinNumber.toLowerCase().includes(q));
+
+                      const matchCategory =
+                        supplierCategoryFilter === 'all' || s.category === supplierCategoryFilter;
+
+                      return matchSearch && matchCategory;
+                    });
+
+                    if (filteredSuppliers.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={7} className="py-12 text-center">
+                            <div className="max-w-xs mx-auto space-y-3">
+                              <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 mx-auto">
+                                <Building2 className="w-6 h-6" />
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-bold text-slate-800">
+                                  {supplierSearch || supplierCategoryFilter !== 'all'
+                                    ? 'No matching suppliers found'
+                                    : 'No suppliers registered yet'}
+                                </h4>
+                                <p className="text-xs text-slate-500 mt-1">
+                                  {supplierSearch || supplierCategoryFilter !== 'all'
+                                    ? 'Try changing search keywords or category filters.'
+                                    : 'Import supplier contacts from your CSV spreadsheet to start managing purchase orders.'}
+                                </p>
+                              </div>
+                              <div className="pt-2 flex items-center justify-center gap-2">
+                                {supplierSearch || supplierCategoryFilter !== 'all' ? (
+                                  <button
+                                    onClick={() => {
+                                      setSupplierSearch('');
+                                      setSupplierCategoryFilter('all');
+                                    }}
+                                    className="px-3 py-1.5 bg-slate-100 text-slate-700 text-xs font-semibold rounded-lg hover:bg-slate-200 transition"
+                                  >
+                                    Reset Filters
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => setIsImportModalOpen(true)}
+                                    className="px-4 py-2 bg-amber-600 text-white text-xs font-bold rounded-xl hover:bg-amber-700 transition shadow-2xs"
+                                  >
+                                    Bulk Import CSV Now
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return filteredSuppliers.map((s) => (
+                      <tr key={s.id} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="py-3 px-4">
+                          <div className="font-bold text-slate-900">{s.name}</div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {s.tinNumber && (
+                              <span className="text-[10px] font-mono text-slate-500">
+                                TIN: {s.tinNumber}
+                              </span>
+                            )}
+                            <span
+                              className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                                s.status === 'active'
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-slate-100 text-slate-600 border border-slate-200'
+                              }`}
+                            >
+                              {s.status === 'active' ? 'Active' : 'Inactive'}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td className="py-3 px-4 font-medium text-slate-800">
+                          {s.contactPerson || <span className="text-slate-400 italic">Not specified</span>}
+                        </td>
+
+                        <td className="py-3 px-4">
+                          <div className="space-y-0.5">
+                            <a
+                              href={`tel:${s.phone}`}
+                              className="font-mono text-amber-700 hover:text-amber-800 hover:underline flex items-center gap-1 text-[11px]"
+                            >
+                              <Phone className="w-3 h-3 text-amber-600 shrink-0" />
+                              <span>{s.phone}</span>
+                            </a>
+                            {s.email && (
+                              <a
+                                href={`mailto:${s.email}`}
+                                className="text-slate-500 hover:text-slate-800 hover:underline flex items-center gap-1 text-[11px]"
+                              >
+                                <Mail className="w-3 h-3 text-slate-400 shrink-0" />
+                                <span className="truncate max-w-[180px]">{s.email}</span>
+                              </a>
+                            )}
+                          </div>
+                        </td>
+
+                        <td className="py-3 px-4">
+                          <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-medium border border-slate-200 inline-block">
+                            {s.category || 'General Supplies'}
+                          </span>
+                        </td>
+
+                        <td className="py-3 px-4 text-slate-600">
+                          <div className="flex items-start gap-1">
+                            <MapPin className="w-3 h-3 text-slate-400 shrink-0 mt-0.5" />
+                            <span className="truncate max-w-[180px]">{s.address || 'Kigali, Rwanda'}</span>
+                          </div>
+                        </td>
+
+                        <td className="py-3 px-4">
+                          <div className="font-medium text-slate-800 text-[11px]">
+                            {s.paymentTerms || 'Net 30 Days'}
+                          </div>
+                          <div className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
+                            <Clock className="w-2.5 h-2.5 text-slate-400" />
+                            <span>{s.leadTimeDays || 2} days lead time</span>
+                          </div>
+                        </td>
+
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end space-x-1">
+                            <button
+                              id={`btn-edit-supplier-${s.id}`}
+                              onClick={() => {
+                                setSupplierToEdit(s);
+                                setIsEditModalOpen(true);
+                              }}
+                              className="p-1.5 text-slate-500 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition"
+                              title="Edit Supplier Details"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+
+                            <button
+                              id={`btn-delete-supplier-${s.id}`}
+                              onClick={() => handleDeleteSupplier(s.id, s.name)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                              title="Remove Supplier"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Supplier CSV Bulk Import Modal */}
+      {currentTenant && (
+        <SupplierImportModal
+          isOpen={isImportModalOpen}
+          onClose={() => setIsImportModalOpen(false)}
+          tenantId={currentTenant.id}
+          onImportComplete={(count) => {
+            refreshSuppliers();
+            showNotifToast(`Successfully imported/updated ${count} supplier contacts!`);
+          }}
+        />
+      )}
+
+      {/* Supplier Single Add/Edit Modal */}
+      {currentTenant && (
+        <SupplierEditModal
+          isOpen={isEditModalOpen}
+          onClose={() => {
+            setIsEditModalOpen(false);
+            setSupplierToEdit(null);
+          }}
+          tenantId={currentTenant.id}
+          supplierToEdit={supplierToEdit}
+          onSaved={(saved) => {
+            refreshSuppliers();
+            showNotifToast(`Supplier '${saved.name}' saved successfully!`);
+          }}
+        />
       )}
 
       {/* Restock Email Preview Modal */}

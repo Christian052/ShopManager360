@@ -7,7 +7,7 @@ import {
   Upload,
   CheckCircle2,
   AlertCircle,
-  Barcode,
+  QrCode,
   Search,
   ArrowDownRight,
   ArrowUpRight,
@@ -18,6 +18,10 @@ import {
   Tag,
   Zap,
   RotateCcw,
+  Sparkles,
+  ZoomIn,
+  ZoomOut,
+  ShieldCheck,
 } from 'lucide-react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { SparePart } from '../types';
@@ -56,6 +60,12 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [availableCameras, setAvailableCameras] = useState<Array<{ id: string; label: string }>>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>('');
   const [torchOn, setTorchOn] = useState(false);
+  const [hasTorchCapability, setHasTorchCapability] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number } | null>(null);
+  const [autoSelectOnScan, setAutoSelectOnScan] = useState<boolean>(true);
+  const [autoSelectingStatus, setAutoSelectingStatus] = useState<string | null>(null);
+
   const [scannedResult, setScannedResult] = useState<{
     rawCode: string;
     part?: SparePart;
@@ -65,56 +75,95 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [isProcessingFile, setIsProcessingFile] = useState(false);
 
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
+  const activeMediaStreamRef = useRef<MediaStream | null>(null);
+  const activeVideoTrackRef = useRef<MediaStreamTrack | null>(null);
+  const isSelectingInProgressRef = useRef<boolean>(false);
   const scannerContainerId = 'barcode-scanner-viewport-mount';
 
   // Modal titles based on mode
   const displayTitle = title || (
     mode === 'stockIn'
-      ? 'Scan Barcode for Stock In Delivery'
+      ? 'Scan QR Code for Stock In Delivery'
       : mode === 'stockOut'
-      ? 'Scan Barcode for Stock Out Sale'
+      ? 'Scan QR Code for Stock Out Sale'
       : mode === 'search'
-      ? 'Scan Barcode to Find Part'
+      ? 'Scan QR Code to Find Part'
       : mode === 'adjustment'
-      ? 'Scan Barcode for Physical Inventory Count'
-      : 'Camera Barcode Scanner'
+      ? 'Scan QR Code for Physical Inventory Count'
+      : 'QR Code Scanner'
   );
 
   const displaySubtitle = subtitle || (
     mode === 'stockIn'
-      ? 'Point camera at item barcode to automatically select part and record incoming delivery'
+      ? 'Point camera at item QR code to automatically select part and record incoming delivery'
       : mode === 'stockOut'
-      ? 'Scan item barcode to instantly select part and verify current stock availability'
+      ? 'Scan item QR code to instantly select part and verify current stock availability'
       : mode === 'search'
-      ? 'Scan any 1D or 2D barcode to instantly filter and populate part search'
-      : 'Align barcode inside the viewfinder box to identify part and populate forms'
+      ? 'Scan product or shelf QR code to instantly filter and locate part'
+      : 'Align QR code inside the viewfinder box to identify part and populate forms'
   );
 
-  // Initialize camera list
-  useEffect(() => {
-    if (!isOpen) return;
 
-    Html5Qrcode.getCameras()
-      .then((devices) => {
-        if (devices && devices.length > 0) {
-          const list = devices.map((d) => ({
-            id: d.id,
-            label: d.label || `Camera ${d.id.slice(0, 5)}`,
-          }));
-          setAvailableCameras(list);
-          // Prefer back camera if available
-          const backCam = list.find((c) =>
-            c.label.toLowerCase().includes('back') || c.label.toLowerCase().includes('rear') || c.label.toLowerCase().includes('environment')
-          );
-          setSelectedCameraId(backCam ? backCam.id : list[0].id);
-        }
-      })
-      .catch(() => {
-        // Camera enumeration might fail if permissions not yet asked
-      });
+  /**
+   * Enumerate camera video input devices using the navigator.mediaDevices API
+   */
+  const enumerateDevicesWithMediaDevices = async () => {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) {
+      setCameraError('navigator.mediaDevices API is not supported in this browser environment.');
+      return;
+    }
+
+    try {
+      // Step 1: Prompt initial camera permission if needed so labels are accessible
+      let initialStream: MediaStream | null = null;
+      try {
+        initialStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+        });
+      } catch (permErr: any) {
+        console.warn('Initial navigator.mediaDevices.getUserMedia probe:', permErr);
+      }
+
+      // Step 2: Enumerate devices using navigator.mediaDevices
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter((d) => d.kind === 'videoinput');
+
+      if (videoDevices.length > 0) {
+        const list = videoDevices.map((d, idx) => ({
+          id: d.deviceId,
+          label: d.label || `Camera ${idx + 1} (${d.deviceId.slice(0, 6)}...)`,
+        }));
+        setAvailableCameras(list);
+
+        // Prefer environmental / back camera for scanning physical barcodes
+        const backCam = list.find((c) =>
+          /back|rear|environment|macro|wide/i.test(c.label)
+        );
+        setSelectedCameraId(backCam ? backCam.id : list[0].id);
+      }
+
+      // Clean up initial probe stream
+      if (initialStream) {
+        initialStream.getTracks().forEach((track) => track.stop());
+      }
+    } catch (err: any) {
+      console.error('Failed to enumerate devices with navigator.mediaDevices', err);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      isSelectingInProgressRef.current = false;
+      setAutoSelectingStatus(null);
+      enumerateDevicesWithMediaDevices();
+    } else {
+      stopCamera();
+    }
   }, [isOpen]);
 
-  // Start scanner when camera is active and modal is open
+  /**
+   * Start camera and live barcode scanning
+   */
   useEffect(() => {
     if (!isOpen || activeTab !== 'camera') {
       stopCamera();
@@ -124,33 +173,51 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     let isMounted = true;
 
     const startScanner = async () => {
-      // Small timeout to allow DOM element to render
-      await new Promise((r) => setTimeout(r, 100));
+      // Wait briefly for the DOM element to mount
+      await new Promise((r) => setTimeout(r, 120));
       if (!isMounted) return;
 
       const element = document.getElementById(scannerContainerId);
       if (!element) return;
 
       try {
-        if (html5QrCodeRef.current) {
+        await stopCamera();
+
+        // 1. Acquire video stream with navigator.mediaDevices to inspect track capabilities
+        if (navigator?.mediaDevices?.getUserMedia) {
           try {
-            if (html5QrCodeRef.current.isScanning) {
-              await html5QrCodeRef.current.stop();
+            const constraints: MediaStreamConstraints = {
+              video: selectedCameraId
+                ? { deviceId: { exact: selectedCameraId } }
+                : { facingMode: { ideal: 'environment' } },
+            };
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            activeMediaStreamRef.current = stream;
+            const track = stream.getVideoTracks()[0];
+            if (track) {
+              activeVideoTrackRef.current = track;
+              const capabilities = (track.getCapabilities ? track.getCapabilities() : {}) as any;
+              setHasTorchCapability(Boolean(capabilities?.torch));
+              if (capabilities?.zoom) {
+                setZoomRange({
+                  min: capabilities.zoom.min || 1,
+                  max: capabilities.zoom.max || 4,
+                  step: capabilities.zoom.step || 0.1,
+                });
+                setZoomLevel(1);
+              } else {
+                setZoomRange(null);
+              }
             }
-            html5QrCodeRef.current.clear();
-          } catch {}
+          } catch (streamErr) {
+            console.warn('Direct mediaDevices capability probe error:', streamErr);
+          }
         }
 
+        // 2. Initialize Html5Qrcode barcode decoder on the mount container
         const scanner = new Html5Qrcode(scannerContainerId, {
           formatsToSupport: [
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.CODE_39,
-            Html5QrcodeSupportedFormats.EAN_13,
-            Html5QrcodeSupportedFormats.EAN_8,
-            Html5QrcodeSupportedFormats.UPC_A,
-            Html5QrcodeSupportedFormats.UPC_E,
             Html5QrcodeSupportedFormats.QR_CODE,
-            Html5QrcodeSupportedFormats.ITF,
           ],
           verbose: false,
         });
@@ -162,8 +229,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           : { facingMode: 'environment' };
 
         const scanConfig = {
-          fps: 12,
-          qrbox: { width: 280, height: 160 },
+          fps: 15,
+          qrbox: { width: 250, height: 250 },
           aspectRatio: 1.333333,
         };
 
@@ -174,21 +241,46 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             handleCodeScanned(decodedText);
           },
           () => {
-            // Ignored frame failures
+            // Ignored frame scan failures
           }
         );
 
         if (isMounted) {
           setCameraActive(true);
           setCameraError(null);
+
+          // Hook into the active video element's media track from Html5Qrcode
+          const videoElement = element.querySelector('video') as HTMLVideoElement | null;
+          if (videoElement && videoElement.srcObject instanceof MediaStream) {
+            const track = videoElement.srcObject.getVideoTracks()[0];
+            if (track) {
+              activeVideoTrackRef.current = track;
+              const caps = (track.getCapabilities ? track.getCapabilities() : {}) as any;
+              if (caps?.torch) setHasTorchCapability(true);
+              if (caps?.zoom) {
+                setZoomRange({
+                  min: caps.zoom.min || 1,
+                  max: caps.zoom.max || 4,
+                  step: caps.zoom.step || 0.1,
+                });
+              }
+            }
+          }
         }
       } catch (err: any) {
         if (isMounted) {
           setCameraActive(false);
-          setCameraError(
-            err?.message ||
-              'Unable to access camera. Please ensure camera permissions are granted in your browser.'
-          );
+          let errorMsg = 'Unable to access camera via navigator.mediaDevices.';
+          if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+            errorMsg = 'Camera permission was denied. Please allow camera access in your browser settings to scan barcodes.';
+          } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
+            errorMsg = 'No camera found on this device. You can test with sample barcodes or upload an image instead.';
+          } else if (err?.name === 'NotReadableError' || err?.name === 'TrackStartError') {
+            errorMsg = 'Camera is currently in use by another application. Please close other camera tabs and retry.';
+          } else if (err?.message) {
+            errorMsg = err.message;
+          }
+          setCameraError(errorMsg);
         }
       }
     };
@@ -201,7 +293,24 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     };
   }, [isOpen, selectedCameraId, activeTab]);
 
+  /**
+   * Stop camera tracks cleanly
+   */
   const stopCamera = async () => {
+    if (activeVideoTrackRef.current) {
+      try {
+        activeVideoTrackRef.current.stop();
+      } catch {}
+      activeVideoTrackRef.current = null;
+    }
+
+    if (activeMediaStreamRef.current) {
+      try {
+        activeMediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      } catch {}
+      activeMediaStreamRef.current = null;
+    }
+
     if (html5QrCodeRef.current) {
       try {
         if (html5QrCodeRef.current.isScanning) {
@@ -211,41 +320,95 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       } catch {}
       html5QrCodeRef.current = null;
     }
+
     setCameraActive(false);
     setTorchOn(false);
   };
 
+  /**
+   * Toggle hardware torch using navigator.mediaDevices Track API
+   */
   const handleToggleTorch = async () => {
-    if (!html5QrCodeRef.current || !cameraActive) return;
+    const track = activeVideoTrackRef.current;
+    if (!track) return;
+
     try {
-      // Html5Qrcode torch toggle via applyVideoConstraints
-      const newTorch = !torchOn;
-      await (html5QrCodeRef.current as any).applyVideoConstraints({
-        advanced: [{ torch: newTorch }],
+      const nextTorch = !torchOn;
+      await (track as any).applyConstraints({
+        advanced: [{ torch: nextTorch }],
       });
-      setTorchOn(newTorch);
-    } catch {
-      // Torch not supported on device
+      setTorchOn(nextTorch);
+    } catch (err) {
+      console.warn('Torch constraint error via navigator.mediaDevices', err);
     }
   };
 
+  /**
+   * Apply optical / digital zoom via navigator.mediaDevices Track API
+   */
+  const handleZoomChange = async (newZoom: number) => {
+    const track = activeVideoTrackRef.current;
+    if (!track) return;
+
+    try {
+      await (track as any).applyConstraints({
+        advanced: [{ zoom: newZoom }],
+      });
+      setZoomLevel(newZoom);
+    } catch (err) {
+      console.warn('Zoom constraint error', err);
+    }
+  };
+
+  /**
+   * Automatically fetch and select spare part when barcode is detected
+   */
   const handleCodeScanned = (rawCode: string) => {
     if (!rawCode || !rawCode.trim()) return;
+    if (isSelectingInProgressRef.current) return;
 
-    // Play feedback beep sound
+    // Audible confirmation beep
     playBarcodeBeep();
 
-    const matched = findPartByBarcodeOrSku(parts, rawCode);
+    const cleanCode = rawCode.trim();
+    const matched = findPartByBarcodeOrSku(parts, cleanCode);
 
     setScannedResult({
-      rawCode: rawCode.trim(),
+      rawCode: cleanCode,
       part: matched,
     });
 
-    // If modal is in single-target mode (like stockIn or stockOut or search), we can trigger callback
-    onScanSuccess(rawCode.trim(), matched);
+    // Auto-Select Workflow: If enabled and a matching part is found, automatically select and proceed
+    if (autoSelectOnScan && matched) {
+      isSelectingInProgressRef.current = true;
+      setAutoSelectingStatus(`Matched: ${matched.name} (${matched.sku}) — Auto-Selecting...`);
+
+      setTimeout(() => {
+        stopCamera();
+        onClose();
+
+        // Automatically trigger mode-specific action
+        if (mode === 'stockIn' && onOpenStockIn) {
+          onOpenStockIn(matched.id);
+        } else if (mode === 'stockOut' && onOpenStockOut) {
+          onOpenStockOut(matched.id);
+        } else if (mode === 'adjustment' && onOpenAdjustment) {
+          onOpenAdjustment(matched.id);
+        }
+
+        // Notify parent callback
+        onScanSuccess(cleanCode, matched);
+        isSelectingInProgressRef.current = false;
+      }, 450);
+    } else {
+      // Inspection mode or code not matched: keep scanner open and notify parent
+      onScanSuccess(cleanCode, matched);
+    }
   };
 
+  /**
+   * Image file upload scanning
+   */
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -254,15 +417,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     setCameraError(null);
 
     try {
-      // Create temporary scanner instance for file scanning
       const fileScanner = new Html5Qrcode('file-scanner-temp-box', {
         formatsToSupport: [
-          Html5QrcodeSupportedFormats.CODE_128,
-          Html5QrcodeSupportedFormats.CODE_39,
-          Html5QrcodeSupportedFormats.EAN_13,
-          Html5QrcodeSupportedFormats.EAN_8,
-          Html5QrcodeSupportedFormats.UPC_A,
-          Html5QrcodeSupportedFormats.UPC_E,
           Html5QrcodeSupportedFormats.QR_CODE,
         ],
         verbose: false,
@@ -272,7 +428,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       handleCodeScanned(decodedText);
       fileScanner.clear();
     } catch (err: any) {
-      setCameraError('No readable barcode or QR code was detected in this photo. Please try another image.');
+      setCameraError('No readable QR code detected in this photo. Please try another image.');
     } finally {
       setIsProcessingFile(false);
       e.target.value = '';
@@ -290,6 +446,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const handleResetScan = () => {
     setScannedResult(null);
     setCameraError(null);
+    setAutoSelectingStatus(null);
+    isSelectingInProgressRef.current = false;
   };
 
   if (!isOpen) return null;
@@ -299,18 +457,18 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       id="modal-barcode-scanner"
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200"
     >
-      <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-200 flex flex-col max-h-[92vh]">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-xl w-full overflow-hidden border border-slate-200 flex flex-col max-h-[94vh]">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-slate-900 text-white">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 bg-slate-900 text-white">
           <div className="flex items-center space-x-2.5">
             <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
-              <Barcode className="w-5 h-5" />
+              <QrCode className="w-5 h-5" />
             </div>
             <div>
               <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
                 <span>{displayTitle}</span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-500 text-slate-950 uppercase">
-                  Live Camera
+                  MediaDevices Camera
                 </span>
               </h3>
               <p className="text-[11px] text-slate-400">{displaySubtitle}</p>
@@ -322,13 +480,40 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               stopCamera();
               onClose();
             }}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition"
+            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Navigation Tabs (Live Camera / Upload Photo / Quick Test Barcodes) */}
+        {/* Auto-Select Feature Toggle & Workflow Bar */}
+        <div className="px-5 py-2 bg-slate-100/90 border-b border-slate-200 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              id="toggle-auto-select-scan"
+              onClick={() => setAutoSelectOnScan(!autoSelectOnScan)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold transition text-[11px] border ${
+                autoSelectOnScan
+                  ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+              }`}
+              title="Automatically select part and proceed immediately when QR code is detected"
+            >
+              <Zap className={`w-3.5 h-3.5 ${autoSelectOnScan ? 'text-amber-300' : 'text-slate-400'}`} />
+              <span>Auto-Select on Scan: <strong>{autoSelectOnScan ? 'ON' : 'OFF'}</strong></span>
+            </button>
+            <span className="hidden sm:inline text-slate-500 text-[11px]">
+              {autoSelectOnScan ? 'Fetches & selects part automatically' : 'Inspect specs before selection'}
+            </span>
+          </div>
+
+          <span className="text-[11px] font-mono font-medium text-slate-500">
+            Catalog: {parts.length} parts
+          </span>
+        </div>
+
+        {/* Navigation Tabs (Device Camera / Instant QR Testing / Scan from Image) */}
         <div className="flex items-center border-b border-slate-200 bg-slate-50 px-5 pt-2 gap-2 text-xs">
           <button
             id="tab-scanner-camera"
@@ -348,9 +533,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
           <button
             id="tab-scanner-test-barcodes"
-            onClick={() => {
-              setActiveTab('test');
-            }}
+            onClick={() => setActiveTab('test')}
             className={`pb-2.5 px-3 font-semibold flex items-center gap-1.5 border-b-2 transition ${
               activeTab === 'test'
                 ? 'border-amber-600 text-amber-700'
@@ -358,7 +541,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             }`}
           >
             <Zap className="w-3.5 h-3.5 text-amber-500" />
-            <span>Quick Test Barcodes</span>
+            <span>Instant QR Testing</span>
             <span className="bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded-full text-[10px] font-bold">
               {parts.length}
             </span>
@@ -366,9 +549,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
           <button
             id="tab-scanner-upload"
-            onClick={() => {
-              setActiveTab('upload');
-            }}
+            onClick={() => setActiveTab('upload')}
             className={`pb-2.5 px-3 font-semibold flex items-center gap-1.5 border-b-2 transition ${
               activeTab === 'upload'
                 ? 'border-amber-600 text-amber-700'
@@ -376,20 +557,33 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             }`}
           >
             <Upload className="w-3.5 h-3.5" />
-            <span>Scan from Image</span>
+            <span>Upload QR Image</span>
           </button>
         </div>
 
         {/* Main Body */}
-        <div className="p-5 space-y-4 overflow-y-auto flex-1">
+        <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
+          {/* Automatic Selection Progress Flash */}
+          {autoSelectingStatus && (
+            <div className="p-3 bg-emerald-600 text-white rounded-xl shadow-md flex items-center justify-between animate-in zoom-in-95 duration-150">
+              <div className="flex items-center gap-2 text-xs font-bold">
+                <Sparkles className="w-4 h-4 text-amber-300 animate-spin" />
+                <span>{autoSelectingStatus}</span>
+              </div>
+              <span className="text-[10px] font-mono bg-white/20 px-2 py-0.5 rounded uppercase">
+                Selecting...
+              </span>
+            </div>
+          )}
+
           {/* Detected Item Card Banner if scanned */}
-          {scannedResult && (
+          {scannedResult && !autoSelectingStatus && (
             <div
               id="scanned-result-card"
               className={`p-4 rounded-xl border animate-in zoom-in-95 duration-150 ${
                 scannedResult.part
-                  ? 'bg-emerald-50/80 border-emerald-300 ring-2 ring-emerald-500/20'
-                  : 'bg-amber-50/80 border-amber-300'
+                  ? 'bg-emerald-50/90 border-emerald-300 ring-2 ring-emerald-500/20'
+                  : 'bg-amber-50/90 border-amber-300'
               }`}
             >
               <div className="flex items-start justify-between">
@@ -415,7 +609,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                       </span>
                       {scannedResult.part && (
                         <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                          Match Found
+                          Part Identified
                         </span>
                       )}
                     </div>
@@ -451,8 +645,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                           {scannedResult.part.shelfLocation && (
                             <>
                               <span>•</span>
-                              <span className="flex items-center gap-0.5 text-slate-500">
-                                <MapPin className="w-3 h-3" />
+                              <span className="flex items-center gap-0.5 text-slate-700 font-medium">
+                                <MapPin className="w-3 h-3 text-rose-500" />
                                 {scannedResult.part.shelfLocation}
                               </span>
                             </>
@@ -462,10 +656,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                     ) : (
                       <div className="mt-1">
                         <div className="text-xs font-semibold text-slate-900">
-                          No matching inventory part found for code "{scannedResult.rawCode}"
+                          No matching inventory part found for QR code "{scannedResult.rawCode}"
                         </div>
                         <p className="text-[11px] text-slate-600 mt-0.5">
-                          You can register a new spare part under this barcode or try scanning again.
+                          You can register a new spare part under this QR code or try scanning again.
                         </p>
                       </div>
                     )}
@@ -476,7 +670,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                   id="btn-scan-again-reset"
                   onClick={handleResetScan}
                   className="text-xs text-slate-500 hover:text-slate-800 p-1 flex items-center gap-1"
-                  title="Scan another barcode"
+                  title="Scan another QR code"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   <span>Rescan</span>
@@ -487,7 +681,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-200/80">
                 {scannedResult.part ? (
                   <>
-                    {/* Mode-specific primary button or general multi-action */}
+                    {/* Primary Mode-Specific Actions */}
                     {mode === 'stockIn' && onOpenStockIn && (
                       <button
                         id="btn-action-populate-stockin"
@@ -498,7 +692,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                         className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
                       >
                         <ArrowDownRight className="w-3.5 h-3.5" />
-                        <span>Confirm & Populate Stock In</span>
+                        <span>Select for Stock In Delivery</span>
                       </button>
                     )}
 
@@ -512,7 +706,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                         className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
                       >
                         <ArrowUpRight className="w-3.5 h-3.5" />
-                        <span>Confirm & Populate Stock Out</span>
+                        <span>Select for Stock Out Sale</span>
                       </button>
                     )}
 
@@ -526,7 +720,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                         className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
                       >
                         <Search className="w-3.5 h-3.5" />
-                        <span>Populate Part Search</span>
+                        <span>Filter Catalog to this Part</span>
                       </button>
                     )}
 
@@ -540,7 +734,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                         className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
                       >
                         <SlidersHorizontal className="w-3.5 h-3.5" />
-                        <span>Populate Physical Count</span>
+                        <span>Select for Count Reconciliation</span>
                       </button>
                     )}
 
@@ -597,7 +791,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                       className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition"
                     >
                       <Package className="w-3.5 h-3.5" />
-                      <span>Register as New Catalog Part</span>
+                      <span>Register as New Part</span>
                     </button>
                   )
                 )}
@@ -616,26 +810,26 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                   className="w-full h-full object-cover flex items-center justify-center [&_video]:w-full [&_video]:h-full [&_video]:object-cover"
                 />
 
-                {/* Laser Overlay & Target Reticle */}
+                {/* Laser Overlay & Target Reticle for Square QR Code */}
                 <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
-                  {/* Outer dim background */}
-                  <div className="relative w-64 sm:w-72 h-40 border-2 border-amber-400/90 rounded-2xl shadow-[0_0_0_9999px_rgba(15,23,42,0.45)] flex items-center justify-center overflow-hidden">
-                    {/* Animated scanning laser line */}
-                    <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-red-500 to-transparent shadow-[0_0_8px_#ef4444] animate-pulse" />
+                  <div className="relative w-56 sm:w-64 h-56 sm:h-64 border-2 border-amber-400/90 rounded-2xl shadow-[0_0_0_9999px_rgba(15,23,42,0.52)] flex items-center justify-center overflow-hidden">
+                    {/* Scanning laser effect */}
+                    <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-amber-400 to-transparent shadow-[0_0_8px_#f59e0b] animate-pulse" />
 
-                    {/* Corner Target Indicators */}
-                    <div className="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-amber-400" />
-                    <div className="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-amber-400" />
-                    <div className="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 border-amber-400" />
-                    <div className="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 border-amber-400" />
+                    {/* Corner Target Reticles for QR Code */}
+                    <div className="absolute top-2 left-2 w-5 h-5 border-t-2 border-l-2 border-amber-400 rounded-tl-sm" />
+                    <div className="absolute top-2 right-2 w-5 h-5 border-t-2 border-r-2 border-amber-400 rounded-tr-sm" />
+                    <div className="absolute bottom-2 left-2 w-5 h-5 border-b-2 border-l-2 border-amber-400 rounded-bl-sm" />
+                    <div className="absolute bottom-2 right-2 w-5 h-5 border-b-2 border-r-2 border-amber-400 rounded-br-sm" />
                   </div>
 
-                  <span className="mt-3 text-[11px] font-semibold tracking-wide text-white bg-slate-900/80 px-3 py-1 rounded-full backdrop-blur-xs border border-white/10 shadow-xs">
-                    Align barcode inside target box
+                  <span className="mt-3 text-[11px] font-semibold tracking-wide text-white bg-slate-900/90 px-3 py-1 rounded-full backdrop-blur-xs border border-white/10 shadow-xs flex items-center gap-1.5">
+                    <QrCode className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Align QR code in square frame</span>
                   </span>
                 </div>
 
-                {/* Camera Top Bar Controls */}
+                {/* Camera Top Bar Controls (Torch, Zoom, Camera Switcher) */}
                 <div className="absolute top-3 right-3 flex items-center space-x-1.5 z-10">
                   {availableCameras.length > 1 && (
                     <button
@@ -645,7 +839,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                         setSelectedCameraId(availableCameras[nextIndex].id);
                       }}
                       className="p-2 rounded-lg bg-slate-900/80 text-white hover:bg-slate-800 backdrop-blur-xs border border-white/10 transition"
-                      title="Switch Camera (Front / Back)"
+                      title="Switch Camera Device via navigator.mediaDevices"
                     >
                       <RefreshCw className="w-4 h-4" />
                     </button>
@@ -658,27 +852,50 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                         ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm'
                         : 'bg-slate-900/80 text-white hover:bg-slate-800 border-white/10'
                     }`}
-                    title="Toggle Flashlight / Torch"
+                    title={hasTorchCapability ? 'Toggle Torch Light' : 'Hardware Torch'}
                   >
                     <Flashlight className="w-4 h-4" />
                   </button>
                 </div>
 
-                {/* Error Banner inside camera */}
+                {/* Hardware Zoom Controls if supported */}
+                {zoomRange && (
+                  <div className="absolute bottom-3 left-3 flex items-center gap-1.5 bg-slate-900/80 backdrop-blur-xs px-2.5 py-1 rounded-lg border border-white/10 z-10 text-white text-xs">
+                    <button
+                      type="button"
+                      onClick={() => handleZoomChange(Math.max(zoomRange.min, zoomLevel - zoomRange.step))}
+                      disabled={zoomLevel <= zoomRange.min}
+                      className="p-1 hover:bg-slate-800 rounded disabled:opacity-40"
+                    >
+                      <ZoomOut className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="font-mono font-bold text-[11px] px-1">{zoomLevel.toFixed(1)}x</span>
+                    <button
+                      type="button"
+                      onClick={() => handleZoomChange(Math.min(zoomRange.max, zoomLevel + zoomRange.step))}
+                      disabled={zoomLevel >= zoomRange.max}
+                      className="p-1 hover:bg-slate-800 rounded disabled:opacity-40"
+                    >
+                      <ZoomIn className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Camera Error Message */}
                 {cameraError && (
                   <div className="absolute inset-0 bg-slate-900/95 p-6 flex flex-col items-center justify-center text-center z-20 space-y-3">
                     <div className="w-12 h-12 rounded-full bg-rose-500/20 text-rose-400 flex items-center justify-center border border-rose-500/30">
                       <Camera className="w-6 h-6" />
                     </div>
                     <div className="space-y-1">
-                      <h4 className="text-sm font-bold text-white">Camera Access Blocked or Unavailable</h4>
+                      <h4 className="text-sm font-bold text-white">Camera Access Error</h4>
                       <p className="text-xs text-slate-300 max-w-sm">{cameraError}</p>
                     </div>
                     <div className="flex items-center gap-2 pt-2">
                       <button
                         onClick={() => {
                           setCameraError(null);
-                          setSelectedCameraId((prev) => (prev ? prev : 'default'));
+                          enumerateDevicesWithMediaDevices();
                         }}
                         className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs transition"
                       >
@@ -695,10 +912,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 )}
               </div>
 
-              {/* Camera Switcher Dropdown if multiple */}
+              {/* Camera Switcher Dropdown */}
               {availableCameras.length > 1 && (
                 <div className="flex items-center justify-between text-xs text-slate-600 px-1">
-                  <span>Selected Lens:</span>
+                  <span>Selected Lens (navigator.mediaDevices):</span>
                   <select
                     value={selectedCameraId}
                     onChange={(e) => setSelectedCameraId(e.target.value)}
@@ -715,11 +932,14 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             </div>
           )}
 
-          {/* TAB 2: QUICK 1-CLICK TEST BARCODES */}
+          {/* TAB 2: INSTANT QR CODE TESTING */}
           {activeTab === 'test' && (
             <div className="space-y-3">
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 leading-relaxed">
-                <strong>Instant 1-Click Scanner Testing:</strong> Click any of your inventory parts below to simulate an instantaneous camera barcode read with retail confirmation beep sound and automatic form population.
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 leading-relaxed flex items-center gap-2">
+                <QrCode className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>
+                  <strong>Instant QR Testing:</strong> Click any of your inventory parts below to simulate an instantaneous camera QR read with confirmation chirp and automatic part selection.
+                </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
@@ -734,7 +954,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                     >
                       <div>
                         <div className="flex items-center justify-between">
-                          <span className="font-mono text-[11px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                          <span className="font-mono text-[11px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 flex items-center gap-1">
+                            <QrCode className="w-3 h-3 text-amber-600" />
                             {code}
                           </span>
                           <span className="text-[10px] text-slate-400 uppercase font-mono">
@@ -762,9 +983,9 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
             <div className="space-y-3">
               <div className="border-2 border-dashed border-slate-300 rounded-2xl p-6 text-center hover:border-amber-500 transition bg-slate-50">
                 <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                <h4 className="text-xs font-bold text-slate-800">Upload Barcode Photo or Label</h4>
+                <h4 className="text-xs font-bold text-slate-800">Upload QR Code Photo or Shelf Label</h4>
                 <p className="text-[11px] text-slate-500 mt-0.5 mb-3">
-                  Upload an image (PNG, JPG) of a product barcode, packaging label, or receipt
+                  Upload an image (PNG, JPG) of a product QR code, shelf tag, or packaging label
                 </p>
 
                 <label
@@ -784,7 +1005,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
 
                 {isProcessingFile && (
                   <p className="text-xs text-amber-700 font-semibold mt-2 animate-pulse">
-                    Scanning photo for barcodes...
+                    Scanning photo for QR code...
                   </p>
                 )}
               </div>
@@ -797,22 +1018,23 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
           <div className="pt-2 border-t border-slate-200">
             <form onSubmit={handleManualSubmit} className="flex items-center gap-2">
               <div className="relative flex-1">
-                <Barcode className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <QrCode className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   id="input-manual-barcode"
                   type="text"
                   value={manualCode}
                   onChange={(e) => setManualCode(e.target.value)}
-                  placeholder="Or type/paste Barcode or SKU (e.g. 07894561001 or BP-TY-084)..."
+                  placeholder="Or type/paste QR Code or SKU (e.g. BP-TY-084)..."
                   className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-amber-500 focus:bg-white"
                 />
               </div>
               <button
                 id="btn-submit-manual-barcode"
                 type="submit"
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition whitespace-nowrap shadow-xs"
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition whitespace-nowrap shadow-xs flex items-center gap-1.5"
               >
-                Scan Code
+                <QrCode className="w-3.5 h-3.5 text-amber-400" />
+                <span>Locate Part</span>
               </button>
             </form>
           </div>
@@ -821,8 +1043,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         {/* Footer */}
         <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
           <div className="flex items-center space-x-1.5">
-            <Barcode className="w-4 h-4 text-slate-400" />
-            <span>Supported: EAN-13, UPC-A, Code-128, Code-39, QR Code</span>
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <span>navigator.mediaDevices Camera | 2D ISO QR Code Decoder</span>
           </div>
 
           <button
@@ -839,3 +1061,6 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     </div>
   );
 };
+
+export const QrCodeScannerModal = BarcodeScannerModal;
+

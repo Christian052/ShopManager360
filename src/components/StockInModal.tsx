@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, ArrowDownRight, AlertCircle, Camera, CheckCircle2, Barcode } from 'lucide-react';
+import { X, ArrowDownRight, AlertCircle, Camera, CheckCircle2, QrCode } from 'lucide-react';
 import { SparePart } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { formatRwf } from '../utils/i18n';
@@ -115,13 +115,13 @@ export const StockInModal: React.FC<StockInModalProps> = ({
               </label>
               <button
                 type="button"
-                id="btn-scan-barcode-stockin"
+                id="btn-scan-qr-stockin"
                 onClick={() => setIsScannerOpen(true)}
                 className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-lg text-xs font-bold transition shadow-2xs"
-                title="Scan barcode using device camera"
+                title="Scan QR code using device camera"
               >
-                <Camera className="w-3.5 h-3.5 text-emerald-700" />
-                <span>Scan Barcode</span>
+                <QrCode className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Scan QR Code</span>
               </button>
             </div>
 
@@ -130,7 +130,7 @@ export const StockInModal: React.FC<StockInModalProps> = ({
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>
-                    Auto-populated from barcode: <strong className="font-mono">{scannedFeedback.code}</strong> ({scannedFeedback.partName})
+                    Auto-populated from QR code: <strong className="font-mono">{scannedFeedback.code}</strong> ({scannedFeedback.partName})
                   </span>
                 </div>
                 <button

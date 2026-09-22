@@ -42,6 +42,7 @@ export function playBarcodeBeep(): void {
 
 /**
  * Smart lookup function to locate a SparePart given scanned barcode or SKU text
+ * Supports raw barcodes, SKUs, formatted QR codes (URLs, JSON, prefixes like SKU:xxx)
  */
 export function findPartByBarcodeOrSku(
   parts: SparePart[],
@@ -49,7 +50,36 @@ export function findPartByBarcodeOrSku(
 ): SparePart | undefined {
   if (!scannedCode || !scannedCode.trim()) return undefined;
 
-  const raw = scannedCode.trim();
+  let raw = scannedCode.trim();
+
+  // Try extracting SKU from JSON if QR code contains structured data
+  if (raw.startsWith('{') && raw.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed.sku) raw = String(parsed.sku).trim();
+      else if (parsed.barcode) raw = String(parsed.barcode).trim();
+      else if (parsed.id) raw = String(parsed.id).trim();
+    } catch {}
+  }
+
+  // Try extracting SKU from URL query parameter (e.g., https://app.example.com/?sku=BP-TY-084)
+  if (raw.includes('http://') || raw.includes('https://') || raw.includes('?')) {
+    try {
+      const url = new URL(raw.startsWith('http') ? raw : `https://dummy.org/${raw}`);
+      const skuParam = url.searchParams.get('sku') || url.searchParams.get('SKU');
+      const barcodeParam = url.searchParams.get('barcode') || url.searchParams.get('BARCODE');
+      const idParam = url.searchParams.get('id') || url.searchParams.get('partId');
+      if (skuParam) raw = skuParam.trim();
+      else if (barcodeParam) raw = barcodeParam.trim();
+      else if (idParam) raw = idParam.trim();
+    } catch {}
+  }
+
+  // Remove common prefix labels like "SKU:", "BARCODE:", "ID:"
+  if (/^(sku|barcode|ean|upc|part|id)\s*[:=\-]\s*/i.test(raw)) {
+    raw = raw.replace(/^(sku|barcode|ean|upc|part|id)\s*[:=\-]\s*/i, '').trim();
+  }
+
   const cleanCode = raw.toLowerCase();
   const digitsOnly = raw.replace(/\D/g, '');
 
